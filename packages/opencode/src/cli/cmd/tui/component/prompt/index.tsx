@@ -40,6 +40,7 @@ export type PromptProps = {
   visible?: boolean
   disabled?: boolean
   onSubmit?: () => void
+  onHistoryPreviousAtStart?: () => boolean | void
   ref?: (ref: PromptRef) => void
   hint?: JSX.Element
   showPlaceholder?: boolean
@@ -947,6 +948,13 @@ export function Prompt(props: PromptProps) {
                 if (store.mode === "shell") {
                   if ((e.name === "backspace" && input.visualCursor.offset === 0) || e.name === "escape") {
                     setStore("mode", "normal")
+                    e.preventDefault()
+                    return
+                  }
+                }
+                if (keybind.match("history_previous", e) && input.cursorOffset === 0) {
+                  const handled = props.onHistoryPreviousAtStart?.()
+                  if (handled) {
                     e.preventDefault()
                     return
                   }

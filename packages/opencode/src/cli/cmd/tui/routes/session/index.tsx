@@ -315,6 +315,28 @@ export function Session() {
 
   const local = useLocal()
 
+  const lastUserMessage = createMemo(() => {
+    const revert = session()?.revert?.messageID
+    return messages().findLast((x) => (!revert || x.id < revert) && x.role === "user")
+  })
+
+  const showMessageDialog = (messageID: string) => {
+    dialog.replace(() => (
+      <DialogMessage
+        messageID={messageID}
+        sessionID={route.sessionID}
+        setPrompt={(promptInfo) => prompt.set(promptInfo)}
+      />
+    ))
+  }
+
+  const openLastUserMessageDialog = () => {
+    const message = lastUserMessage()
+    if (!message) return false
+    showMessageDialog(message.id)
+    return true
+  }
+
   function moveFirstChild() {
     if (children().length === 1) return
     const next = children().find((x) => !!x.parentID)
@@ -912,6 +934,7 @@ export function Session() {
       value: "session.child.first",
       keybind: "session_child_first",
       category: "Session",
+      enabled: !!session()?.parentID,
       hidden: true,
       onSelect: (dialog) => {
         moveFirstChild()
@@ -923,6 +946,7 @@ export function Session() {
       value: "session.parent",
       keybind: "session_parent",
       category: "Session",
+      enabled: !!session()?.parentID,
       hidden: true,
       enabled: !!session()?.parentID,
       onSelect: childSessionHandler((dialog) => {
@@ -941,6 +965,7 @@ export function Session() {
       value: "session.child.next",
       keybind: "session_child_cycle",
       category: "Session",
+      enabled: !!session()?.parentID,
       hidden: true,
       enabled: !!session()?.parentID,
       onSelect: childSessionHandler((dialog) => {
@@ -953,6 +978,7 @@ export function Session() {
       value: "session.child.previous",
       keybind: "session_child_cycle_reverse",
       category: "Session",
+      enabled: !!session()?.parentID,
       hidden: true,
       enabled: !!session()?.parentID,
       onSelect: childSessionHandler((dialog) => {
@@ -1125,13 +1151,7 @@ export function Session() {
                         index={index()}
                         onMouseUp={() => {
                           if (renderer.getSelection()?.getSelectedText()) return
-                          dialog.replace(() => (
-                            <DialogMessage
-                              messageID={message.id}
-                              sessionID={route.sessionID}
-                              setPrompt={(promptInfo) => prompt.set(promptInfo)}
-                            />
-                          ))
+                          showMessageDialog(message.id)
                         }}
                         message={message as UserMessage}
                         parts={sync.data.part[message.id] ?? []}
@@ -1158,6 +1178,9 @@ export function Session() {
               </Show>
               <Prompt
                 visible={!session()?.parentID && permissions().length === 0 && questions().length === 0}
+                onHistoryPreviousAtStart={() => {
+                  return openLastUserMessageDialog()
+                }}
                 ref={(r) => {
                   prompt = r
                   promptRef.set(r)
