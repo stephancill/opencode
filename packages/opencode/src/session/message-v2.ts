@@ -663,18 +663,26 @@ export namespace MessageV2 {
                 ...(differentModel ? {} : { callProviderMetadata: part.metadata }),
               })
             }
-            if (part.state.status === "error")
+            if (part.state.status === "error") {
+              const out =
+                typeof part.state.metadata?.output === "string" && part.state.metadata.output.trim()
+                  ? part.state.metadata.output.trim()
+                  : undefined
+              const err = out
+                ? [part.state.error, "", "<tool_output>", out, "</tool_output>"].join("\n")
+                : part.state.error
               assistantMessage.parts.push({
                 type: ("tool-" + part.tool) as `tool-${string}`,
                 state: "output-error",
                 toolCallId: part.callID,
                 input: part.state.input,
-                errorText: part.state.error,
+                errorText: err,
                 ...(differentModel ? {} : { callProviderMetadata: part.metadata }),
               })
+            }
             // Handle pending/running tool calls to prevent dangling tool_use blocks
             // Anthropic/Claude APIs require every tool_use to have a corresponding tool_result
-            if (part.state.status === "pending" || part.state.status === "running")
+            if (part.state.status === "pending" || part.state.status === "running") {
               assistantMessage.parts.push({
                 type: ("tool-" + part.tool) as `tool-${string}`,
                 state: "output-error",
@@ -683,6 +691,7 @@ export namespace MessageV2 {
                 errorText: "[Tool execution was interrupted]",
                 ...(differentModel ? {} : { callProviderMetadata: part.metadata }),
               })
+            }
           }
           if (part.type === "reasoning") {
             assistantMessage.parts.push({
@@ -856,7 +865,7 @@ export namespace MessageV2 {
           },
           { cause: e },
         ).toObject()
-      case APICallError.isInstance(e):
+      case APICallError.isInstance(e): {
         const parsed = ProviderError.parseAPICallError({
           providerID: ctx.providerID,
           error: e,
@@ -882,6 +891,7 @@ export namespace MessageV2 {
           },
           { cause: e },
         ).toObject()
+      }
       case e instanceof Error:
         return new NamedError.Unknown({ message: e.toString() }, { cause: e }).toObject()
       default:

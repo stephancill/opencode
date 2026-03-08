@@ -566,6 +566,77 @@ describe("session.message-v2.toModelMessage", () => {
     ])
   })
 
+  test("includes aborted tool output in error-text tool result", () => {
+    const userID = "m-user"
+    const assistantID = "m-assistant"
+
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [
+          {
+            ...basePart(userID, "u1"),
+            type: "text",
+            text: "run tool",
+          },
+        ] as MessageV2.Part[],
+      },
+      {
+        info: assistantInfo(assistantID, userID),
+        parts: [
+          {
+            ...basePart(assistantID, "a1"),
+            type: "tool",
+            callID: "call-1",
+            tool: "bash",
+            state: {
+              status: "error",
+              input: { cmd: "long command" },
+              error: "Tool execution aborted",
+              time: { start: 0, end: 1 },
+              metadata: {
+                output: "partial line 1\npartial line 2",
+              },
+            },
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    expect(MessageV2.toModelMessages(input, model)).toStrictEqual([
+      {
+        role: "user",
+        content: [{ type: "text", text: "run tool" }],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "call-1",
+            toolName: "bash",
+            input: { cmd: "long command" },
+            providerExecuted: undefined,
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-1",
+            toolName: "bash",
+            output: {
+              type: "error-text",
+              value: "Tool execution aborted\n\n<tool_output>\npartial line 1\npartial line 2\n</tool_output>",
+            },
+          },
+        ],
+      },
+    ])
+  })
+
   test("filters assistant messages with non-abort errors", () => {
     const assistantID = "m-assistant"
 
