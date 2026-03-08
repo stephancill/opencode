@@ -948,7 +948,6 @@ export function Session() {
       category: "Session",
       enabled: !!session()?.parentID,
       hidden: true,
-      enabled: !!session()?.parentID,
       onSelect: childSessionHandler((dialog) => {
         const parentID = session()?.parentID
         if (parentID) {
@@ -967,7 +966,6 @@ export function Session() {
       category: "Session",
       enabled: !!session()?.parentID,
       hidden: true,
-      enabled: !!session()?.parentID,
       onSelect: childSessionHandler((dialog) => {
         moveChild(1)
         dialog.clear()
@@ -980,7 +978,6 @@ export function Session() {
       category: "Session",
       enabled: !!session()?.parentID,
       hidden: true,
-      enabled: !!session()?.parentID,
       onSelect: childSessionHandler((dialog) => {
         moveChild(-1)
         dialog.clear()
