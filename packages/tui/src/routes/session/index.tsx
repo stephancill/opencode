@@ -422,6 +422,24 @@ export function Session() {
 
   const local = useLocal()
 
+  const lastUserMessage = createMemo(() => {
+    const revert = session()?.revert?.messageID
+    return messages().findLast((x) => (!revert || x.id < revert) && x.role === "user")
+  })
+
+  const showMessageDialog = (messageID: string) => {
+    dialog.replace(() => (
+      <DialogMessage messageID={messageID} sessionID={route.sessionID} setPrompt={(promptInfo) => prompt?.set(promptInfo)} />
+    ))
+  }
+
+  const openLastUserMessageDialog = () => {
+    const message = lastUserMessage()
+    if (!message) return false
+    showMessageDialog(message.id)
+    return true
+  }
+
   function enterChild(sessionID: string) {
     navigate({
       type: "session",
@@ -1255,13 +1273,7 @@ export function Session() {
                           index={index()}
                           onMouseUp={() => {
                             if (renderer.getSelection()?.getSelectedText()) return
-                            dialog.replace(() => (
-                              <DialogMessage
-                                messageID={message.id}
-                                sessionID={route.sessionID}
-                                setPrompt={(promptInfo) => prompt?.set(promptInfo)}
-                              />
-                            ))
+                            showMessageDialog(message.id)
                           }}
                           message={message as UserMessage}
                           parts={sync.data.part[message.id] ?? []}
@@ -1309,6 +1321,7 @@ export function Session() {
                       visible={visible()}
                       ref={bind}
                       disabled={disabled()}
+                      onHistoryPreviousAtStart={() => openLastUserMessageDialog()}
                       onSubmit={() => {
                         toBottom()
                       }}

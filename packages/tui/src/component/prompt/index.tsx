@@ -64,6 +64,7 @@ export type PromptProps = {
   visible?: boolean
   disabled?: boolean
   onSubmit?: () => void
+  onHistoryPreviousAtStart?: () => boolean | void
   ref?: (ref: PromptRef | undefined) => void
   hint?: JSX.Element
   right?: JSX.Element
@@ -873,6 +874,8 @@ export function Prompt(props: PromptProps) {
               if (input.scrollY + input.visualCursor.visualRow === 0) input.cursorOffset = 0
               return false
             }
+
+            if (props.onHistoryPreviousAtStart?.()) return
 
             const item = history.move(-1, input.plainText)
             if (!item) return false
