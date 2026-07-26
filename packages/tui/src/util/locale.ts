@@ -14,6 +14,18 @@ export function datetime(input: number): string {
   return `${localTime} · ${localDate}`
 }
 
+function timeWithSeconds(input: number): string {
+  const date = new Date(input)
+  return date.toLocaleTimeString(undefined, { timeStyle: "medium" })
+}
+
+function datetimeWithSeconds(input: number): string {
+  const date = new Date(input)
+  const localTime = timeWithSeconds(input)
+  const localDate = date.toLocaleDateString()
+  return `${localTime} · ${localDate}`
+}
+
 export function todayTimeOrDateTime(input: number): string {
   const date = new Date(input)
   const now = new Date()
@@ -21,10 +33,9 @@ export function todayTimeOrDateTime(input: number): string {
     date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate()
 
   if (isToday) {
-    return time(input)
-  } else {
-    return datetime(input)
+    return timeWithSeconds(input)
   }
+  return datetimeWithSeconds(input)
 }
 
 export function number(num: number): string {

@@ -429,7 +429,11 @@ export function Session() {
 
   const showMessageDialog = (messageID: string) => {
     dialog.replace(() => (
-      <DialogMessage messageID={messageID} sessionID={route.sessionID} setPrompt={(promptInfo) => prompt?.set(promptInfo)} />
+      <DialogMessage
+        messageID={messageID}
+        sessionID={route.sessionID}
+        setPrompt={(promptInfo) => prompt?.set(promptInfo)}
+      />
     ))
   }
 
@@ -1386,71 +1390,62 @@ function UserMessage(props: {
   const queued = createMemo(() => props.pending && props.message.id > props.pending)
   const color = createMemo(() => local.agent.color(props.message.agent))
   const queuedFg = createMemo(() => selectedForeground(theme, color()))
-  const metadataVisible = createMemo(() => queued() || ctx.showTimestamps())
 
   const compaction = createMemo(() => props.parts.find((x) => x.type === "compaction"))
 
   return (
     <>
       <Show when={text()}>
-        <box
-          id={props.message.id}
-          ref={(el: BoxRenderable) => alwaysSeparate.add(el)}
-          border={["left"]}
-          borderColor={color()}
-          customBorderChars={SplitBorder.customBorderChars}
-          marginTop={props.index === 0 ? 0 : 1}
-        >
+        <>
+          <TimestampSeparator time={props.message.time.created} />
           <box
-            onMouseOver={() => {
-              setHover(true)
-            }}
-            onMouseOut={() => {
-              setHover(false)
-            }}
-            onMouseUp={props.onMouseUp}
-            paddingTop={1}
-            paddingBottom={1}
-            paddingLeft={2}
-            backgroundColor={hover() ? theme.backgroundElement : theme.backgroundPanel}
-            flexShrink={0}
+            id={props.message.id}
+            ref={(el: BoxRenderable) => alwaysSeparate.add(el)}
+            border={["left"]}
+            borderColor={color()}
+            customBorderChars={SplitBorder.customBorderChars}
+            marginTop={props.index === 0 && !ctx.showTimestamps() ? 0 : 1}
           >
-            <text fg={theme.text}>{text()}</text>
-            <Show when={files().length}>
-              <box flexDirection="row" paddingBottom={metadataVisible() ? 1 : 0} paddingTop={1} gap={1} flexWrap="wrap">
-                <For each={files()}>
-                  {(file) => {
-                    const directory = file.mime === "application/x-directory"
-                    return (
-                      <text fg={theme.text}>
-                        <span style={{ bg: theme.secondary, fg: theme.background }}>
-                          {directory ? " Directory " : " File "}
-                        </span>
-                        <span style={{ bg: theme.backgroundElement, fg: theme.textMuted }}> {file.filename} </span>
-                      </text>
-                    )
-                  }}
-                </For>
-              </box>
-            </Show>
-            <Show
-              when={queued()}
-              fallback={
-                <Show when={ctx.showTimestamps()}>
-                  <text fg={theme.textMuted}>
-                    <span style={{ fg: theme.textMuted }}>
-                      {Locale.todayTimeOrDateTime(props.message.time.created)}
-                    </span>
-                  </text>
-                </Show>
-              }
+            <box
+              onMouseOver={() => {
+                setHover(true)
+              }}
+              onMouseOut={() => {
+                setHover(false)
+              }}
+              onMouseUp={props.onMouseUp}
+              paddingTop={1}
+              paddingBottom={1}
+              paddingLeft={2}
+              backgroundColor={hover() ? theme.backgroundElement : theme.backgroundPanel}
+              flexShrink={0}
             >
-              <text fg={theme.textMuted}>
-                <span style={{ bg: color(), fg: queuedFg(), bold: true }}> QUEUED </span>
-              </text>
-            </Show>
+              <text fg={theme.text}>{text()}</text>
+              <Show when={files().length}>
+                <box flexDirection="row" paddingBottom={queued() ? 1 : 0} paddingTop={1} gap={1} flexWrap="wrap">
+                  <For each={files()}>
+                    {(file) => {
+                      const directory = file.mime === "application/x-directory"
+                      return (
+                        <text fg={theme.text}>
+                          <span style={{ bg: theme.secondary, fg: theme.background }}>
+                            {directory ? " Directory " : " File "}
+                          </span>
+                          <span style={{ bg: theme.backgroundElement, fg: theme.textMuted }}> {file.filename} </span>
+                        </text>
+                      )
+                    }}
+                  </For>
+                </box>
+              </Show>
+              <Show when={queued()}>
+                <text fg={theme.textMuted}>
+                  <span style={{ bg: color(), fg: queuedFg(), bold: true }}> QUEUED </span>
+                </text>
+              </Show>
+            </box>
           </box>
-        </box>
+        </>
       </Show>
       <Show when={compaction()}>
         <box
@@ -1472,6 +1467,10 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
   const sync = useSync()
   const messages = createMemo(() => sync.data.message[props.message.sessionID] ?? [])
   const model = createMemo(() => Model.name(ctx.providers(), props.message.providerID, props.message.modelID))
+  const startsWithShellCommand = createMemo(() => {
+    const first = props.parts.find(isRenderableAssistantPart)
+    return first?.type === "tool" && toolDisplay(first.tool) === "bash"
+  })
 
   const final = createMemo(() => {
     return props.message.finish && !["tool-calls", "unknown"].includes(props.message.finish)
@@ -1490,6 +1489,9 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
 
   return (
     <>
+      <Show when={!startsWithShellCommand()}>
+        <TimestampSeparator time={props.message.time.created} />
+      </Show>
       <For each={props.parts}>
         {(part, index) => {
           const component = createMemo(() => PART_MAPPING[part.type as keyof typeof PART_MAPPING])
@@ -1571,6 +1573,19 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
         </Match>
       </Switch>
     </>
+  )
+}
+
+function TimestampSeparator(props: { time: number }) {
+  const ctx = use()
+  const { theme } = useTheme()
+
+  return (
+    <Show when={ctx.showTimestamps()}>
+      <box paddingLeft={3} marginTop={1} flexShrink={0}>
+        <text fg={theme.textMuted}>{Locale.todayTimeOrDateTime(props.time)}</text>
+      </box>
+    </Show>
   )
 }
 
@@ -1739,6 +1754,9 @@ function ToolPart(props: { last: boolean; part: ToolPart; message: AssistantMess
     get part() {
       return props.part
     },
+    get message() {
+      return props.message
+    },
   }
 
   return (
@@ -1800,6 +1818,7 @@ type ToolProps = {
   tool: string
   output?: string
   part: ToolPart
+  message: AssistantMessage
 }
 function GenericTool(props: ToolProps) {
   const { theme } = useTheme()
@@ -2081,23 +2100,26 @@ function Shell(props: ToolProps) {
   return (
     <Switch>
       <Match when={stringValue(props.metadata.output) !== undefined}>
-        <BlockTool
-          title={title()}
-          part={props.part}
-          onClick={collapsed().overflow ? () => setExpanded((prev) => !prev) : undefined}
-        >
-          <box gap={1}>
-            <Show when={isRunning()} fallback={<text fg={theme.text}>$ {stringValue(props.input.command)}</text>}>
-              <Spinner color={theme.text}>{stringValue(props.input.command)}</Spinner>
-            </Show>
-            <Show when={output()}>
-              <text fg={theme.text}>{limited()}</text>
-            </Show>
-            <Show when={collapsed().overflow}>
-              <text fg={theme.textMuted}>{expanded() ? "Click to collapse" : "Click to expand"}</text>
-            </Show>
-          </box>
-        </BlockTool>
+        <>
+          <TimestampSeparator time={toolStartTime(props.part) ?? props.message.time.created} />
+          <BlockTool
+            title={title()}
+            part={props.part}
+            onClick={collapsed().overflow ? () => setExpanded((prev) => !prev) : undefined}
+          >
+            <box gap={1}>
+              <Show when={isRunning()} fallback={<text fg={theme.text}>$ {stringValue(props.input.command)}</text>}>
+                <Spinner color={theme.text}>{stringValue(props.input.command)}</Spinner>
+              </Show>
+              <Show when={output()}>
+                <text fg={theme.text}>{limited()}</text>
+              </Show>
+              <Show when={collapsed().overflow}>
+                <text fg={theme.textMuted}>{expanded() ? "Click to collapse" : "Click to expand"}</text>
+              </Show>
+            </box>
+          </BlockTool>
+        </>
       </Match>
       <Match when={true}>
         <InlineTool icon="$" pending="Writing command..." complete={stringValue(props.input.command)} part={props.part}>
@@ -2106,6 +2128,15 @@ function Shell(props: ToolProps) {
       </Match>
     </Switch>
   )
+}
+
+function toolStartTime(part: ToolPart): number | undefined {
+  if (!("time" in part.state)) return undefined
+  return part.state.time.start
+}
+
+function isRenderableAssistantPart(part: Part): part is Extract<Part, { type: "reasoning" | "text" | "tool" }> {
+  return part.type === "reasoning" || part.type === "text" || part.type === "tool"
 }
 
 function Write(props: ToolProps) {
