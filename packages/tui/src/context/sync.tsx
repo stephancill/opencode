@@ -142,7 +142,9 @@ export const {
     const sdk = useSDK()
 
     const fullSyncedSessions = new Set<string>()
+    const fullHistorySyncedSessions = new Set<string>()
     const syncingSessions = new Map<string, Promise<void>>()
+    const syncingFullHistorySessions = new Map<string, Promise<void>>()
     const hydratingSessions = new Map<string, { messages: Set<string>; parts: Set<string> }>()
     const touchMessage = (sessionID: string, messageID: string) => {
       hydratingSessions.get(sessionID)?.messages.add(messageID)
@@ -165,6 +167,55 @@ export const {
       return sdk.client.session
         .list({ start: Date.now() - 30 * 24 * 60 * 60 * 1000, ...sessionListQuery() })
         .then((x) => (x.data ?? []).toSorted((a, b) => a.id.localeCompare(b.id)))
+    }
+
+    function mergeMessages(
+      draft: typeof store,
+      sessionID: string,
+      messages: { info: Message; parts: Part[] }[],
+      tracker: { messages: Set<string>; parts: Set<string> },
+      trim?: number,
+    ) {
+      const currentMessages = draft.message[sessionID] ?? []
+      const byID = new Map(currentMessages.map((message) => [message.id, message]))
+      for (const message of messages) {
+        if (tracker.messages.has(message.info.id) && byID.has(message.info.id)) continue
+        byID.set(message.info.id, message.info)
+      }
+      const infos = Array.from(byID.values()).toSorted((a, b) => a.id.localeCompare(b.id))
+      const visible = trim === undefined ? infos : infos.slice(-trim)
+      const visibleIDs = new Set(visible.map((message) => message.id))
+      for (const message of messages) {
+        if (!visibleIDs.has(message.info.id)) {
+          delete draft.part[message.info.id]
+          continue
+        }
+        const currentParts = draft.part[message.info.id] ?? []
+        const parts = message.parts.flatMap((part) => {
+          const current = currentParts.find((item) => item.id === part.id)
+          if (tracker.parts.has(part.id)) return current ? [current] : []
+          if (
+            current &&
+            (part.type === "text" || part.type === "reasoning") &&
+            (current.type === "text" || current.type === "reasoning") &&
+            part.text.length === 0 &&
+            current.text.length > 0
+          ) {
+            return [current]
+          }
+          return [part]
+        })
+        parts.push(
+          ...currentParts.filter(
+            (part) => tracker.parts.has(part.id) && !parts.some((item) => item.id === part.id),
+          ),
+        )
+        draft.part[message.info.id] = parts
+      }
+      for (const message of currentMessages) {
+        if (!visibleIDs.has(message.id)) delete draft.part[message.id]
+      }
+      draft.message[sessionID] = visible
     }
 
     event.subscribe((event, { directory, workspace }) => {
@@ -332,7 +383,11 @@ export const {
             }),
           )
           const updated = store.message[event.properties.info.sessionID]
-          if (updated.length > 100) {
+          if (
+            !fullHistorySyncedSessions.has(event.properties.info.sessionID) &&
+            !syncingFullHistorySessions.has(event.properties.info.sessionID) &&
+            updated.length > 100
+          ) {
             const oldest = updated[0]
             batch(() => {
               setStore(
@@ -604,49 +659,13 @@ export const {
                 if (match.found) draft.session[match.index] = session.data!
                 if (!match.found) draft.session.splice(match.index, 0, session.data!)
                 draft.todo[sessionID] = todo.data ?? []
-                const currentMessages = draft.message[sessionID] ?? []
-                const infos = (messages.data ?? []).flatMap((message) => {
-                  if (!tracker.messages.has(message.info.id)) return [message.info]
-                  const current = currentMessages.find((item) => item.id === message.info.id)
-                  return current ? [current] : []
-                })
-                infos.push(
-                  ...currentMessages.filter(
-                    (message) => tracker.messages.has(message.id) && !infos.some((item) => item.id === message.id),
-                  ),
+                mergeMessages(
+                  draft,
+                  sessionID,
+                  messages.data ?? [],
+                  tracker,
+                  fullHistorySyncedSessions.has(sessionID) ? undefined : 100,
                 )
-                const removed = infos.slice(0, -100)
-                const visible = infos.slice(-100)
-                const visibleIDs = new Set(visible.map((message) => message.id))
-                for (const message of messages.data ?? []) {
-                  if (!visibleIDs.has(message.info.id)) {
-                    delete draft.part[message.info.id]
-                    continue
-                  }
-                  const currentParts = draft.part[message.info.id] ?? []
-                  const parts = message.parts.flatMap((part) => {
-                    const current = currentParts.find((item) => item.id === part.id)
-                    if (tracker.parts.has(part.id)) return current ? [current] : []
-                    if (
-                      current &&
-                      (part.type === "text" || part.type === "reasoning") &&
-                      (current.type === "text" || current.type === "reasoning") &&
-                      part.text.length === 0 &&
-                      current.text.length > 0
-                    ) {
-                      return [current]
-                    }
-                    return [part]
-                  })
-                  parts.push(
-                    ...currentParts.filter(
-                      (part) => tracker.parts.has(part.id) && !parts.some((item) => item.id === part.id),
-                    ),
-                  )
-                  draft.part[message.info.id] = parts
-                }
-                for (const message of removed) delete draft.part[message.id]
-                draft.message[sessionID] = visible
                 draft.session_diff[sessionID] = diff.data ?? []
               }),
             )
@@ -656,6 +675,39 @@ export const {
             hydratingSessions.delete(sessionID)
           })
           syncingSessions.set(sessionID, task)
+          return task
+        },
+        async loadAllMessages(sessionID: string) {
+          if (fullHistorySyncedSessions.has(sessionID)) return
+          const syncing = syncingFullHistorySessions.get(sessionID)
+          if (syncing) return syncing
+          const task = (async () => {
+            await result.session.sync(sessionID)
+            const tracker = { messages: new Set<string>(), parts: new Set<string>() }
+            hydratingSessions.set(sessionID, tracker)
+            let before: string | undefined
+            try {
+              while (true) {
+                const page = await sdk.client.session.messages(
+                  { sessionID, limit: 200, ...(before ? { before } : {}) },
+                  { throwOnError: true },
+                )
+                setStore(
+                  produce((draft) => {
+                    mergeMessages(draft, sessionID, page.data ?? [], tracker)
+                  }),
+                )
+                before = page.response.headers.get("x-next-cursor") ?? undefined
+                if (!before) break
+              }
+            } finally {
+              hydratingSessions.delete(sessionID)
+            }
+            fullHistorySyncedSessions.add(sessionID)
+          })().finally(() => {
+            syncingFullHistorySessions.delete(sessionID)
+          })
+          syncingFullHistorySessions.set(sessionID, task)
           return task
         },
       },
